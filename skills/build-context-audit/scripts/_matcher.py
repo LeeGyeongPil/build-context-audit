@@ -3,8 +3,10 @@
 Clean-room implementation of the observable behaviour of the reference matcher
 (moby/patternmatcher): patterns are anchored at the context root, ``*`` and ``?``
 never cross ``/``, ``**`` spans directories, a match on any parent directory
-counts, the last line that changes the verdict decides. Every decision also
-reports which line decided it.
+counts, the last line that changes the verdict decides. The verdict is built
+folder by folder the way the builder walks the context (a line skipped for a
+folder because it could not change that folder's verdict does not reach the
+files below it). Every decision also reports which line decided it.
 
 Matching is plain string work on slash-separated paths, never ``fnmatch``,
 so the answer does not depend on the platform's case rules: ``secret.txt``
@@ -55,6 +57,10 @@ class Evaluation:
     deciding: int | None = None  # index into Matcher.patterns of the last line that changed the verdict
     flips: list[int] = field(default_factory=list)
     matched: list[int] = field(default_factory=list)  # every line that matches, even when skipped
+    # line index -> parent folder: lines that match only through that folder, were skipped there because they could
+    # not change the folder's verdict at that point, and so never reach this path although they would change its
+    # verdict at that point if they did (used to explain, not to decide)
+    folder_skipped: dict[int, str] = field(default_factory=dict)
 
 
 def clean_path(p: str) -> str:
@@ -276,20 +282,52 @@ class Matcher:
         parent = posixpath.dirname(path)
         parts = parent.split("/") if parent else []
         parents = ["/".join(parts[: k + 1]) for k in range(len(parts))]
-        state = False
+        # 설명·힌트용: 경로 자신이나 상위 폴더 중 하나에 맞는 줄 전부
         for index, pat in enumerate(self.patterns):
-            hit = pat.matches(path) or any(pat.matches(q) for q in parents)
-            if not hit:
-                continue
-            result.matched.append(index)
-            # A normal line can only exclude, an exception can only re-include.
-            if pat.exclusion != state:
-                continue
-            state = not pat.exclusion
-            result.deciding = index
-            result.flips.append(index)
+            if pat.matches(path) or any(pat.matches(q) for q in parents):
+                result.matched.append(index)
+        # 판정: 빌더(BuildKit 의 컨텍스트 전송)처럼 맨 위 폴더부터 한 단계씩 내려가며, 각 줄이 상위 폴더에서
+        # 맞았는지를 물려받는다. 상위 폴더에서 판정을 바꿀 수 없어 건너뛴 줄은 '맞지 않음'으로 물려진다.
+        hits: list[bool] | None = None
+        for step in [*parents, path]:
+            state, hits, flips, deciding = self._step(step, hits)
         result.excluded = state
+        result.flips = flips
+        result.deciding = deciding
+        # 설명용(판정에는 쓰지 않음): 경로 자신에는 맞지 않고 상위 폴더로만 맞는데 끝내 적용되지 않은 줄은,
+        # 그 폴더에서 판정을 바꿀 수 없어 건너뛰어진 줄이다. 그 줄은 이 경로까지 내려오지 않는다.
+        # 닿았다면 이 경로의 그 시점 판정을 바꿨을 줄만 고른다(아니면 '이미 같은 판정'이 맞는 설명이다).
+        assert hits is not None
+        for index in result.matched:
+            pat = self.patterns[index]
+            if hits[index] or pat.matches(path):
+                continue
+            # 이 경로 단계에서 이 줄 직전의 판정: 처음엔 포함, 뒤집힐 때마다 바뀐다
+            before = sum(1 for f in flips if f < index) % 2 == 1
+            if before != (not pat.exclusion):
+                result.folder_skipped[index] = next(q for q in parents if pat.matches(q))
         return result
+
+    def _step(self, path: str, parent_hits: list[bool] | None) -> tuple[bool, list[bool], list[int], int | None]:
+        """One level of the builder's walk: (excluded, per-line hits handed to children, flips, deciding)."""
+        hits = [False] * len(self.patterns)
+        state = False
+        flips: list[int] = []
+        deciding: int | None = None
+        for index, pat in enumerate(self.patterns):
+            hit = parent_hits[index] if parent_hits else False
+            if not hit:
+                # A normal line can only exclude, an exception can only re-include: a line that cannot change the
+                # current verdict is not even tried, and its slot stays False for the children (Docker does the same).
+                if pat.exclusion != state:
+                    continue
+                hit = pat.matches(path)
+            hits[index] = hit
+            if hit and state != (not pat.exclusion):
+                state = not pat.exclusion
+                flips.append(index)
+                deciding = index
+        return state, hits, flips, deciding
 
     def decide(self, path: str) -> tuple[bool, Rule | None]:
         ev = self.evaluate(path)

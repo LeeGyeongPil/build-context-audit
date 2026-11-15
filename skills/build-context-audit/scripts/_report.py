@@ -234,11 +234,15 @@ def build_hints(matcher: Matcher, results: list[FileResult], parsed: Parsed | No
     matched_any = [False] * len(pats)
     flipped_any = [False] * len(pats)
     deciding_any = [False] * len(pats)
+    # line index -> (folder, file): first file the line would change but never reaches (skipped at that folder)
+    folder_skip_example: dict[int, tuple[str, str]] = {}
     for r in results:
         for idx in r.ev.matched:
             matched_any[idx] = True
         for idx in r.ev.flips:
             flipped_any[idx] = True
+        for idx, folder in r.ev.folder_skipped.items():
+            folder_skip_example.setdefault(idx, (folder, r.path))
         if r.ev.deciding is not None:
             deciding_any[r.ev.deciding] = True
     for idx, pat in enumerate(pats):
@@ -258,6 +262,11 @@ def build_hints(matcher: Matcher, results: list[FileResult], parsed: Parsed | No
         elif not deciding_any[idx]:
             if pat.exclusion and flipped_any[idx]:
                 add("shadowed-exception", "hint.shadowed")
+            elif idx in folder_skip_example:
+                # '!certs' after '**/*.key': the folder exception never reaches certs/tls.key
+                # (no fix line here: re-including a file the user may want kept out, such as a key, is not advice)
+                folder, example = folder_skip_example[idx]
+                add("unused-rule", "hint.unused.folder", folder=folder, example=example)
             else:
                 add("unused-rule", "hint.unused.covered")
         if anchored_example:
@@ -303,8 +312,13 @@ def explain(path: str, matcher: Matcher, results: list[FileResult], walked: Walk
     history = []
     for idx in ev.matched:
         pat = matcher.patterns[idx]
+        folder = ev.folder_skipped.get(idx)
         if idx in ev.flips:
             effect = "include" if pat.exclusion else "exclude"
+        elif folder is not None:
+            # the line hits only through a parent folder that the builder had already settled at this line,
+            # so it never reaches this path: the verdict was not "already the same" here
+            effect = "folder-skip"
         else:
             effect = "no-effect"
         history.append(
@@ -314,6 +328,9 @@ def explain(path: str, matcher: Matcher, results: list[FileResult], walked: Walk
                 "pattern": pat.display,
                 "effect": effect,
                 "deciding": idx == ev.deciding,
+                "folder": folder,
+                # a line naming the path itself does reach it (only filled for folder-skip)
+                "fix": (("!" if pat.exclusion else "") + norm) if folder is not None else None,
             }
         )
     notes: list[str] = []

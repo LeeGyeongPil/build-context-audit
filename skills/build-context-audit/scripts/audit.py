@@ -27,7 +27,7 @@ from _render import render_md, render_text
 from _report import build_hints, check_copies, classify, explain, find_secrets, top_dirs, totals
 from _suggest import compare, suggest
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 EXIT_OK, EXIT_FINDINGS, EXIT_USAGE, EXIT_SYNTAX = 0, 1, 2, 3
 
 

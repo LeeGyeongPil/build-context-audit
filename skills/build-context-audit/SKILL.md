@@ -11,7 +11,8 @@ Your next step is one command in the user's project folder: the script reads the
 the folder and prints what the builder will really receive. Do not work the rules out in your head and do not run
 `docker build` to find out. People and models misjudge `.dockerignore` by hand, because it is not `.gitignore`: every
 pattern is anchored to the context root (`*.md` does not hit `docs/a.md`, `node_modules` does not hit
-`web/node_modules`), the last matching line wins (an exception `!x` can be undone by a later line),
+`web/node_modules`), the last matching line wins, but folder by folder (after `**/*.key`, `!certs` does not bring
+back `certs/tls.key`),
 `<Dockerfile name>.dockerignore` replaces `.dockerignore` completely when it exists, `#` is a comment only in column 1
 (`*.bak  # backups` is one pattern that matches nothing), `[!R]` is the set `!`,`R` and not a negation (`[!R]*.md`
 removes `README.md`), and a trailing `/` also matches a file (`release/` removes the script `release`).
@@ -30,7 +31,10 @@ python3 <skill-dir>/scripts/audit.py CONTEXT [-f DOCKERFILE] --lang en
   `--ignore-file FILE` forces another one, for example `.containerignore`.
 - Which line excludes or includes a path: add `--explain PATH`, once per path in the same run. It lists every matching
   line in order and marks the one that decides. Use it for every "why" or "which line" question instead of reasoning
-  from memory: an exception inside an excluded folder does work in Docker, and a later line can undo it.
+  from memory: an exception inside an excluded folder does work in Docker, and a later line can undo it, but a line
+  that hits a file only through its folder applies only if it could change that folder's verdict at that point
+  (`!certs` after `**/*.key` keeps `certs/tls.key` out; `docs`, `!docs/keep.md`, `docs` still sends `docs/keep.md`).
+  `--explain` marks such a line `does not reach this path`.
 - Fixing a failed COPY or a secret: add `--suggest`. It proposes one line to append, applies it to a copy, re-computes the
   whole audit and prints `verified` plus the files that come in or drop out. Offer only lines that came out verified.
 - Rewriting or tightening the ignore file: write the candidate to a separate file, run `--compare-ignore CANDIDATE` and read the

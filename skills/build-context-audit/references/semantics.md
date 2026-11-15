@@ -30,6 +30,15 @@ changes the current verdict counts. The last such line is the deciding line. Exa
 `README-secret.md` sends `README.md` (line 2 re-includes it) but not `README-secret.md` (line 3 excludes it again).
 An exception placed before the broader exclusion has no effect.
 
+The builder walks the context folder by folder, and a line that cannot change a folder's verdict at that point is not
+tried for that folder, so it does not reach the files below it through the folder. Example: `**/*.key` then `!certs`:
+the folder `certs` is not excluded, so `!certs` is skipped for it, and `certs/tls.key` (excluded by its own name) stays
+excluded - the folder exception does not bring it back. Name the file instead (`!certs/tls.key`). The same holds the
+other way: in `docs`, `!docs/keep.md`, `docs`, the last line does not exclude `docs/keep.md` again. A folder line
+does reach the files when it could change the folder's verdict: after `*` and `**/*.key`, `!certs` re-includes the
+folder `certs` and with it `certs/tls.key`. `--explain` shows a line that matched only through a skipped folder as
+`does not reach this path` (`이 경로에 닿지 않음`), and the `unused-rule` hint names the folder.
+
 ## Which ignore file is used
 
 `docker build -f build.Dockerfile .` reads `build.Dockerfile.dockerignore` next to the Dockerfile when it exists and

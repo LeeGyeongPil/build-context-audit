@@ -132,7 +132,7 @@ def _sections(rep: dict, lang: str, max_list: int) -> list[tuple[str | None, lis
                     file=h["file"],
                     line=h["line"],
                     pattern=h["pattern"],
-                    effect=t(lang, f"explain.effect.{h['effect']}"),
+                    effect=t(lang, f"explain.effect.{h['effect']}", folder=h.get("folder"), fix=h.get("fix")),
                     mark=t(lang, "explain.mark") if h["deciding"] else "",
                 )
             )

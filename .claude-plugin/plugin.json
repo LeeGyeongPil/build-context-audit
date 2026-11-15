@@ -1,6 +1,6 @@
 {
   "name": "build-context-audit",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Computes exactly which files a docker build context sends, which .dockerignore line decided each one, which COPY or ADD sources will fail and which secret-looking files slip in, without a Docker daemon.",
   "author": {"name": "LeeGyeongPil"},
   "license": "MIT",
