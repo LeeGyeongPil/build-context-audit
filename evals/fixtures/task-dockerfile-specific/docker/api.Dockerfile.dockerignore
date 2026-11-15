@@ -1,0 +1,9 @@
+# api image: Go sources only
+*
+!go.mod
+!go.sum
+!services/api
+!services/shared/*.go
+!*.proto
+services/api/testdata  # golden files, too big
+**/*_test.go

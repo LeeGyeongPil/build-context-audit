@@ -1,0 +1,7 @@
+# editor and cache files
+**/*~
+*.py[cod]
+[!.]cache
+\#scratch
+[-_]tmp*
+build/

@@ -1,0 +1,9 @@
+# Proposed replacement for demo/context/.dockerignore (used with --compare-ignore)
+*.md
+!README*.md
+README-secret.md
+**/node_modules
+.git
+.env
+**/*.key
+**/id_rsa

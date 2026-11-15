@@ -1,0 +1,10 @@
+# never ship credentials
+*.pem
+**/*.key
+id_*
+secrets/
+!secrets/*.pub
+kubeconfig  # cluster access
+*.tfstate
+# the CA bundle in certs is public
+!certs

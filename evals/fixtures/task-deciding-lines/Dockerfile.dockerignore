@@ -1,0 +1,10 @@
+# runtime files only
+docs
+!docs/api/openapi.yaml
+release/
+*.bak  # editor backups
+config/*.yaml
+!config/app.yaml
+config
+**/*.csv
+!data/seed/*.csv

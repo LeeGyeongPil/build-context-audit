@@ -1,0 +1,14 @@
+# allowlist: send only what the image needs
+*
+!package.json
+!README*.md
+!src
+!web
+[!R]*.md
+fixtures
+**/*.test.js
+!src/**/keep.test.js
+src/generated
+!src/generated/schema.json
+web/a*
+src/legacy

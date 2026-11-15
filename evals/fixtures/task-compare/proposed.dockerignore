@@ -1,0 +1,9 @@
+# tighter rules
+**/*.csv
+**/third_party
+docs
+assets/*
+!assets/fonts/*.woff2
+app/**/*_test.py
+*.md  # docs
+[!r]*.txt

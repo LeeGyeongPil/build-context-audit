@@ -1,0 +1,7 @@
+# comment
+*.md
+!README*.md
+README-secret.md
+node_modules
+.git
+app/*.yaml
