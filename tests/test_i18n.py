@@ -29,7 +29,7 @@ def test_every_key_used_in_the_scripts_exists():
         used |= set(re.findall(r't\(\s*lang,\s*"([\w.\-]+)"', path.read_text(encoding="utf-8")))
     used |= {f"copy.note.{n}" for n in ("from", "remote", "heredoc", "unparsable", "variable", "outside-context", "bad-glob", "missing")}
     used |= {f"status.{s}" for s in ("ok", "excluded", "missing", "skipped", "dynamic")}
-    used |= {f"explain.effect.{e}" for e in ("exclude", "include", "no-effect")}
+    used |= {f"explain.effect.{e}" for e in ("exclude", "include", "no-effect", "folder-skip")}
     assert used - set(MESSAGES["en"]) == set()
 
 

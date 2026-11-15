@@ -213,3 +213,80 @@ def test_anchored_hint_finds_the_nested_path_and_ignores_covered_paths():
     assert m.anchored_hint(0, "node_modules/x.js") is None
     assert matcher("**/node_modules").anchored_hint(0, "web/node_modules/a") is None
     assert matcher("!x").anchored_hint(0, "a/x") is None
+
+
+# The builder walks the context folder by folder and hands each line's result from a folder to its children.
+# A line that could not change a folder's verdict is not tried there, so its "matched" slot reaches the files
+# below as False. These cases follow the observed BuildKit context transfer (the CI Docker oracle compares them).
+def test_folder_exception_does_not_re_include_a_file_excluded_by_its_own_line():
+    m = matcher("**/*.key", "!certs")
+    assert m.decide("certs/tls.key")[0] is True  # '!certs' was skipped for the folder 'certs', which was not excluded
+    assert m.decide("certs/ca.crt")[0] is False
+    ev = m.evaluate("certs/tls.key")
+    assert ev.matched == [0, 1] and ev.flips == [0] and ev.deciding == 0
+
+
+def test_folder_line_skipped_while_the_folder_was_already_excluded_does_not_apply_below():
+    m = matcher("docs", "!docs/keep.md", "docs")
+    assert m.decide("docs/keep.md")[0] is False  # the second 'docs' was skipped for the folder: already excluded
+    assert m.decide("docs/other.md")[0] is True
+    assert m.decide("docs")[0] is True
+
+
+def test_folder_exception_after_a_folder_exclusion_still_re_includes_its_files():
+    m = matcher("*", "!src", "src/generated", "!src/generated/schema.json")
+    assert m.decide("src/index.js")[0] is False
+    assert m.decide("src/generated/types.js")[0] is True
+    assert m.decide("src/generated/schema.json")[0] is False
+
+
+# --explain needs to know why a matching line did nothing. A line that matches only through a parent folder and was
+# skipped there never reaches the path; that is not "verdict already the same" (Q-1 of the review).
+def test_folder_skipped_names_the_folder_where_the_exception_was_skipped():
+    m = matcher("**/*.key", "!certs")
+    assert m.evaluate("certs/tls.key").folder_skipped == {1: "certs"}
+    # certs/server.pem is already sent, so '!certs' would change nothing there: plain "already the same"
+    assert m.evaluate("certs/server.pem").folder_skipped == {}
+    # the folder itself is matched directly, never "through a folder"
+    assert m.evaluate("certs").folder_skipped == {}
+
+
+def test_folder_skipped_also_covers_a_folder_line_after_a_file_exception():
+    m = matcher("docs", "!docs/keep.md", "docs")
+    assert m.evaluate("docs/keep.md").folder_skipped == {2: "docs"}
+    assert m.evaluate("docs/other.md").folder_skipped == {}
+
+
+def test_folder_skipped_is_empty_when_the_line_reaches_the_file():
+    m = matcher("*", "!src", "src/generated", "!src/generated/schema.json")
+    for path in ("src/index.js", "src/generated/types.js", "src/generated/schema.json"):
+        assert m.evaluate(path).folder_skipped == {}, path
+    # the counter-cases quoted in SKILL.md and references/semantics.md: a folder line that could change the
+    # folder's verdict does reach the files inside
+    m = matcher("*", "**/*.key", "!certs")
+    assert m.decide("certs/tls.key")[0] is False and m.evaluate("certs/tls.key").folder_skipped == {}
+    m = matcher("docs/*", "!docs/keep.md", "docs")
+    assert m.decide("docs/keep.md")[0] is True and m.evaluate("docs/keep.md").folder_skipped == {}
+
+
+def test_folder_skipped_lines_never_hit_and_a_line_naming_the_path_does():
+    """Seeded sweep: every folder-skipped line matches only a parent, and appending the path itself works."""
+    import random
+
+    rng = random.Random(20261116)
+    words = ["a", "b", "k.key", "x.md"]
+    pats = ["a", "b", "a/b", "**/*.key", "**/*.md", "a/**", "*", "*/b", "**/b"]
+    found = 0
+    for _ in range(3000):
+        lines = [("!" if rng.random() < 0.4 else "") + rng.choice(pats) for _ in range(rng.randint(1, 5))]
+        m = matcher(*lines)
+        path = "/".join(rng.choice(words) for _ in range(rng.randint(2, 4)))
+        ev = m.evaluate(path)
+        for idx, folder in ev.folder_skipped.items():
+            found += 1
+            pat = m.patterns[idx]
+            assert not pat.matches(path) and pat.matches(folder) and path.startswith(folder + "/")
+            assert idx in ev.matched and idx not in ev.flips
+            fixed = m.with_line(("!" if pat.exclusion else "") + path)
+            assert fixed.decide(path)[0] is (not pat.exclusion), (lines, path)
+    assert found > 50  # the sweep really exercises the case

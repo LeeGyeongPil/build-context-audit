@@ -172,6 +172,84 @@ def test_explain_unknown_path_is_judged_by_the_lines_only(cli):
     assert rep["explain"][0]["kind"] == "unknown"
 
 
+# A line that matches only through a folder where the builder skipped it never reaches the file. --explain must say
+# so, not "no effect (verdict already the same)" (review Q-1), in both languages.
+FOLDER_EXCEPTION = {
+    "Dockerfile": "FROM scratch\n", ".dockerignore": "**/*.key\n!certs\n", "certs/tls.key": "k", "certs/server.pem": "p",
+}
+FOLDER_UNDO = {
+    "Dockerfile": "FROM scratch\n", ".dockerignore": "docs\n!docs/keep.md\ndocs\n", "docs/keep.md": "x", "docs/other.md": "y",
+}
+
+
+def test_explain_folder_exception_that_does_not_reach_the_file(cli, make_ctx):
+    ctx = make_ctx(FOLDER_EXCEPTION)
+    rep = cli(str(ctx), "--format", "json", "--explain", "certs/tls.key", "--explain", "certs/server.pem").json()
+    key, pem = rep["explain"]
+    assert key["included"] is False and key["rule"]["line"] == 1  # verdict and deciding line unchanged
+    assert [(h["line"], h["effect"], h["deciding"], h["folder"], h["fix"]) for h in key["history"]] == [
+        (1, "exclude", True, None, None),
+        (2, "folder-skip", False, "certs", "!certs/tls.key"),
+    ]
+    # server.pem is already sent: '!certs' would change nothing there, so "already the same" is the true reason
+    assert [(h["line"], h["effect"]) for h in pem["history"]] == [(2, "no-effect")]
+
+    out = cli(str(ctx), "--explain", "certs/tls.key", "--lang", "en").out
+    row = next(ln for ln in out.splitlines() if "'!certs' matches ->" in ln)
+    assert "verdict already the same" not in row
+    assert "only through folder 'certs'" in row and "'!certs/tls.key'" in row
+
+    out = cli(str(ctx), "--explain", "certs/tls.key", "--lang", "ko").out
+    row = next(ln for ln in out.splitlines() if "'!certs' 일치 ->" in ln)
+    assert "이미 같은 판정" not in row
+    assert "폴더 'certs' 를 통해서만" in row and "'!certs/tls.key'" in row
+
+
+def test_explain_later_folder_line_that_does_not_undo_a_file_exception(cli, make_ctx):
+    ctx = make_ctx(FOLDER_UNDO)
+    rep = cli(str(ctx), "--format", "json", "--explain", "docs/keep.md", "--explain", "docs/other.md").json()
+    keep, other = rep["explain"]
+    assert keep["included"] is True and keep["rule"]["line"] == 2
+    assert [(h["line"], h["effect"], h["deciding"]) for h in keep["history"]] == [
+        (1, "exclude", False),
+        (2, "include", True),
+        (3, "folder-skip", False),
+    ]
+    assert keep["history"][2]["folder"] == "docs" and keep["history"][2]["fix"] == "docs/keep.md"
+    assert [(h["line"], h["effect"]) for h in other["history"]] == [(1, "exclude"), (3, "no-effect")]
+
+    out = cli(str(ctx), "--explain", "docs/keep.md", "--lang", "ko").out
+    row = next(ln for ln in out.splitlines() if ":3 'docs' 일치 ->" in ln)
+    assert "이미 같은 판정" not in row and "폴더 'docs' 를 통해서만" in row and "'docs/keep.md'" in row
+    out = cli(str(ctx), "--explain", "docs/keep.md", "--lang", "en").out
+    row = next(ln for ln in out.splitlines() if ":3 'docs' matches ->" in ln)
+    assert "verdict already the same" not in row and "only through folder 'docs'" in row
+
+
+@pytest.mark.parametrize(
+    ("files", "line", "folder", "example"),
+    [(FOLDER_EXCEPTION, 2, "certs", "certs/tls.key"), (FOLDER_UNDO, 3, "docs", "docs/keep.md")],
+)
+def test_unused_rule_hint_names_the_folder_skip(cli, make_ctx, files, line, folder, example):
+    # the hint for the same line gives the same reason instead of "decided by another line"
+    ctx = make_ctx(files)
+    for lang, text, wrong in (
+        ("en", f"only through folder '{folder}'", "decided by another line"),
+        ("ko", f"폴더 '{folder}' 를 통해서만", "다른 줄이 결정"),
+    ):
+        rep = cli(str(ctx), "--format", "json", "--lang", lang).json()
+        hint = next(h for h in rep["hints"] if h["line"] == line)
+        assert hint["code"] == "unused-rule"
+        assert text in hint["message"] and f"--explain {example}" in hint["message"] and wrong not in hint["message"]
+        assert "'!certs/tls.key'" not in hint["message"]  # the hint never proposes re-including a key file
+
+
+def test_suggest_for_the_folder_exception_case_is_unchanged(cli, make_ctx):
+    ctx = make_ctx({**FOLDER_EXCEPTION, "Dockerfile": "FROM scratch\nCOPY certs/tls.key /k\n"})
+    rep = cli(str(ctx), "--format", "json", "--suggest").json()
+    assert [(s["add_line"], s["verified"]) for s in rep["suggestions"]][:1] == [("!certs/tls.key", True)]
+
+
 def hints_by_code(rep):
     out = {}
     for h in rep["hints"]:

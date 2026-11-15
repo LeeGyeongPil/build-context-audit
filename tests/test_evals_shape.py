@@ -49,7 +49,6 @@ GOOD_ANSWERS = {
     ),
     "task-secrets": (
         "SENT: certs/server.pem - add **/*.pem\n"
-        "SENT: certs/tls.key - add **/*.key at the end (line 10 '!certs' re-includes it)\n"
         "- SENT: `deploy/id_rsa` - add **/id_rsa\n"
         "SENT: infra/terraform.tfstate - add **/*.tfstate\n"
         "SENT: kubeconfig - add kubeconfig (on its own line, without the trailing comment)\n"
@@ -221,6 +220,16 @@ def test_answer_graders_reject_the_gitignore_habit_answer(task):
     graders = regex_graders(task, None)
     failed = [name for name, rx in graders if not rx.search(GITIGNORE_HABIT_ANSWERS[task])]
     assert len(failed) >= 2, f"{task}: the hand-reasoned answer fails only {failed}"
+
+
+def test_secrets_answer_that_trusts_the_folder_exception_is_rejected():
+    """'!certs' does not bring back certs/tls.key in the real builder (it was excluded by its own line)."""
+    answer = GOOD_ANSWERS["task-secrets"].replace(
+        "SENT: certs/server.pem - add **/*.pem\n",
+        "SENT: certs/server.pem - add **/*.pem\nSENT: certs/tls.key - add **/*.key at the end\n",
+    )
+    failed = [name for name, rx in regex_graders("task-secrets", None) if not rx.search(answer)]
+    assert {"answer-count-sent.md", "answer-tls-key.md"} <= set(failed)
 
 
 def test_every_task_has_both_reference_answers():
