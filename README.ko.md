@@ -10,6 +10,7 @@
 ## 무엇을 하나
 
 - **무시 규칙을 정확히 재현**합니다. `.dockerignore` 는 `.gitignore` 와 다릅니다. 모든 패턴은 컨텍스트 루트에 고정되고, 마지막으로 맞는 줄이 이기며, `!` 예외는 뒤 줄에서 다시 취소될 수 있고, `**` 를 지원하며, `<Dockerfile 이름>.dockerignore` 가 `.dockerignore` 를 통째로 대체합니다. 대소문자를 구분합니다.
+- **빌더처럼 폴더 단위로 판정**합니다. 폴더를 통해서만 파일에 닿는 줄은, 그 줄 시점에 그 폴더의 판정을 바꿀 수 있을 때만 적용됩니다. 그래서 `**/*.key` 뒤의 `!certs` 는 `certs/tls.key` 를 되살리지 못합니다. 파일 이름을 직접 적어야 합니다(`!certs/tls.key`). 반대로 `docs`, `!docs/keep.md`, `docs` 에서 마지막 줄은 `docs/keep.md` 를 다시 제외하지 않습니다. `--explain` 은 이런 줄을 `이 경로에 닿지 않음` 으로 표시합니다. 자세한 내용: [references/semantics.md](skills/build-context-audit/references/semantics.md).
 - 파일마다 **결정한 줄을 알려 줍니다**(`--explain PATH`). 보내는 파일 수·바이트와 큰 폴더 순위도 냅니다.
 - **`COPY`/`ADD` 교차 검사**: 줄 이어쓰기, JSON 형식, 옵션, 와일드카드를 읽고, `--from`·URL·heredoc 원본은 건너뜁니다.
 - **비밀처럼 보이는 파일**(`.env`, 개인 키, SSH 키)을 파일 이름만으로 찾습니다. 파일 내용은 읽지 않습니다.
@@ -18,7 +19,7 @@
 
 ## 설치
 
-Python 3.10 이상이 필요합니다(표준 라이브러리만 사용). 없으면 패키지 관리자로 설치하세요. 예: `brew install python`(macOS), `sudo apt-get install -y python3`(Debian/Ubuntu).
+Python 3.10 이상이 필요합니다(표준 라이브러리만 사용). 없으면 패키지 관리자로 설치하세요. 예: `brew install python`(macOS), `sudo apt-get install -y python3`(Debian/Ubuntu). 테스트 실행(개발 절)에는 [uv](https://docs.astral.sh/uv/)가 필요합니다: `curl -LsSf https://astral.sh/uv/install.sh | sh` 또는 `brew install uv`.
 
 **Claude Code**
 
@@ -127,7 +128,7 @@ python3 skills/build-context-audit/scripts/audit.py /tmp/bca-demo --lang ko --co
 | 필요 없을 때 안 불림 | 12/12 |
 | 스킬로 푼 작업 | 6/6 |
 | 스킬 없이 푼 작업(기준선) | 0/6 |
-| 평균 점수 차이(Δ) | +0.49 |
+| 평균 점수 차이(Δ) | +0.46 |
 | 가짜 스크립트를 잡아낸 비율 | 6/6 |
 | Codex CLI | 미검증 |
 
@@ -144,14 +145,14 @@ flowchart LR
     B --> C[audit.py]
     C --> D[Dockerfile과 무시 파일 읽기]
     C --> E[컨텍스트 폴더 순회]
-    D --> F[매처: 모든 줄, 마지막 일치가 이김]
+    D --> F[매처: 폴더 단위, 마지막 일치가 이김]
     E --> F
     F --> G[보고서: 보내는 파일, COPY 검사, 비밀, 진단]
     G --> H[에이전트가 이 실행 결과로 답함]
 ```
 
 - 요청이 스킬 설명과 맞으면 에이전트가 `SKILL.md` 를 읽고, 규칙을 기억으로 추론하는 대신 `scripts/audit.py` 를 실행합니다.
-- 스크립트는 Dockerfile 과 무시 파일을 읽고 폴더를 순회합니다. 파일마다 모든 줄을 끝까지 돌려 맞은 줄과 결정한 줄을 기록합니다.
+- 스크립트는 Dockerfile 과 무시 파일을 읽고 빌더처럼 폴더를 위에서부터 순회합니다. 폴더는 안의 파일보다 먼저 판정합니다. 줄을 순서대로 돌리되, 그 시점에 판정을 바꿀 수 있는 줄만 시도합니다. 폴더에 맞은 줄은 그 안의 모든 것에 맞은 것으로 치고, 폴더에서 건너뛴 줄은 그 폴더를 통해 안의 파일에 닿지 않습니다. 스크립트는 맞은 줄, 결정한 줄, 그리고 아무것도 바꿀 수 없는 폴더를 통해서만 맞은 줄(`이 경로에 닿지 않음`)을 기록합니다.
 - `--suggest` 와 `--compare-ignore` 는 제안한 줄로 새 매처를 만들어 폴더 전체를 다시 판정합니다.
 - 매처는 레퍼런스 Docker 의미를 새로 구현한 것입니다. `fnmatch` 가 아니라 문자열 비교와 `re` 만 써서 플랫폼에 따라 결과가 달라지지 않습니다.
 - 범위: 지정한 폴더, Dockerfile, 무시 파일만 읽습니다. 네트워크 호출이 없고, 읽기 외 권한이 필요 없으며, 파일 내용은 읽지 않습니다. 비밀은 이름으로만 찾습니다.

@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] - 2026-11-16
+
+### Fixed
+
+- Matching is now folder-aware: a rule matching a folder covers everything below it, as the Docker CLI does.
+- `--explain` states why a folder was skipped.
+- Skill docs (`SKILL.md`, `semantics.md`) and both READMEs describe folder-level matching; the skill-eval table is refreshed
+  and the install section names the `uv` prerequisite for tests.
+- Task-secrets eval graders and tests adjusted to match.
+
 ## [0.1.0] - 2026-11-15
 
 ### Added

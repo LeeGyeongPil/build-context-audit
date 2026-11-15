@@ -10,6 +10,7 @@ An agent skill that, before `docker build` runs, computes exactly which files th
 ## What it does
 
 - **Reproduces the ignore rules exactly**. `.dockerignore` is not `.gitignore`: every pattern is anchored to the context root, the last matching line wins, `!` exceptions can be undone by a later line, `**` works, and `<Dockerfile name>.dockerignore` replaces `.dockerignore` completely. Matching is case-sensitive.
+- **Decides folder by folder, like the builder**. A line that reaches a file only through its folder counts only if it could change that folder's verdict at that point. So `!certs` after `**/*.key` does not bring back `certs/tls.key`; name the file instead (`!certs/tls.key`). Likewise in `docs`, `!docs/keep.md`, `docs`, the last line does not exclude `docs/keep.md` again. `--explain` marks such a line `does not reach this path`. Details: [references/semantics.md](skills/build-context-audit/references/semantics.md).
 - **Names the deciding line** for each file (`--explain PATH`), then totals the files and bytes sent and the largest folders.
 - **Cross-checks `COPY`/`ADD`**: line continuations, JSON form, flags and wildcards are read; `--from`, URL and heredoc sources are skipped.
 - **Flags secret-looking files** (`.env`, private keys, SSH keys) by file name only. File contents are never read.
@@ -18,7 +19,7 @@ An agent skill that, before `docker build` runs, computes exactly which files th
 
 ## Install
 
-Requires Python 3.10 or newer (standard library only). Install Python with your package manager if needed, for example `brew install python` (macOS) or `sudo apt-get install -y python3` (Debian/Ubuntu).
+Requires Python 3.10 or newer (standard library only). Install Python with your package manager if needed, for example `brew install python` (macOS) or `sudo apt-get install -y python3` (Debian/Ubuntu). Running the tests (Development) needs [uv](https://docs.astral.sh/uv/): `curl -LsSf https://astral.sh/uv/install.sh | sh` or `brew install uv`.
 
 **Claude Code**
 
@@ -127,7 +128,7 @@ Other options: `--list excluded|included|all`, `--max-list N`, `--top N`, `--for
 | Stays quiet when it should not | 12/12 |
 | Tasks solved with the skill | 6/6 |
 | Tasks solved without it (baseline) | 0/6 |
-| Mean score gain (Δ) | +0.49 |
+| Mean score gain (Δ) | +0.46 |
 | Tasks that catch a broken script | 6/6 |
 | Codex CLI | not verified |
 
@@ -144,14 +145,14 @@ flowchart LR
     B --> C[audit.py]
     C --> D[Read Dockerfile and ignore file]
     C --> E[Walk the context folder]
-    D --> F[Matcher: every line, last match wins]
+    D --> F[Matcher: folder by folder, last match wins]
     E --> F
     F --> G[Report: sent files, COPY check, secrets, hints]
     G --> H[Agent answers from this run]
 ```
 
 - The agent loads `SKILL.md` when a request matches its description, then runs `scripts/audit.py` instead of reasoning about the rules from memory.
-- The script reads the Dockerfile and the ignore file, then walks the folder. For each file it runs all lines to the end and records which lines matched and which one decided.
+- The script reads the Dockerfile and the ignore file, then walks the folder top-down, the way the builder does. Each folder is judged before the files inside it: the lines run in order, and a line is tried only when it could change the verdict at that point. A line that matched a folder counts as matched for everything inside it; a line skipped at a folder does not reach the files through it. The script records which lines matched, which one decided, and which matched only through a folder where they could not change anything (`does not reach this path`).
 - `--suggest` and `--compare-ignore` build a new matcher with the proposed lines and judge the whole folder again.
 - The matcher is a clean-room implementation of the reference Docker semantics. It uses string comparison and `re`, not `fnmatch`, so results do not depend on the platform.
 - Scope: it reads only the folder you name, the Dockerfile and the ignore file. It makes no network calls, needs no permissions beyond reading, and never reads file contents. Secrets are found by name only.
