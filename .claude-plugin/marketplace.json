@@ -1,0 +1,12 @@
+{
+  "name": "build-context-audit-skill",
+  "owner": {"name": "LeeGyeongPil"},
+  "description": "Agent skill that audits a docker build context and its .dockerignore before the build runs.",
+  "plugins": [
+    {
+      "name": "build-context-audit",
+      "source": "./",
+      "description": "Per-file sent/not-sent verdicts with the deciding .dockerignore line, COPY/ADD cross-check, secret and size report, verified fix lines and what-if comparison of a proposed ignore file."
+    }
+  ]
+}
