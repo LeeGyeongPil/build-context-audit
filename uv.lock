@@ -8,7 +8,7 @@ resolution-markers = [
 
 [[package]]
 name = "build-context-audit-skill-dev"
-version = "0.1.0"
+version = "0.1.1"
 source = { virtual = "." }
 
 [package.dev-dependencies]
